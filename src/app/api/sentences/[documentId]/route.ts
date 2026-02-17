@@ -24,18 +24,38 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ documentId: string }> }
 ) {
-  await params;
+  const { documentId } = await params;
   const body = await request.json();
-  const { sentenceId, understanding } = body;
+  const { sentenceId, sentenceIds, understanding } = body;
 
-  const { error } = await supabase
-    .from("sentences")
-    .update({ understanding })
-    .eq("id", sentenceId);
+  // Bulk update: update multiple sentences at once
+  if (sentenceIds && Array.isArray(sentenceIds)) {
+    const { error } = await supabase
+      .from("sentences")
+      .update({ understanding })
+      .eq("document_id", documentId)
+      .in("id", sentenceIds);
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
   }
 
-  return NextResponse.json({ success: true });
+  // Single update
+  if (sentenceId) {
+    const { error } = await supabase
+      .from("sentences")
+      .update({ understanding })
+      .eq("id", sentenceId);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  }
+
+  return NextResponse.json({ error: "No sentence ID provided" }, { status: 400 });
 }

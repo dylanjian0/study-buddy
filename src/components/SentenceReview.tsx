@@ -5,12 +5,14 @@ import {
   CheckCircle2,
   AlertCircle,
   XCircle,
-  Circle,
   BookOpen,
   BrainCircuit,
   Loader2,
   ChevronDown,
   ChevronUp,
+  ListChecks,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { Sentence, Understanding } from "@/lib/types";
 
@@ -22,15 +24,17 @@ interface SentenceReviewProps {
   generatingQuiz: boolean;
 }
 
-const understandingConfig = {
-  unmarked: {
-    bg: "bg-white",
-    border: "border-gray-200",
-    hover: "hover:border-gray-300",
-    icon: Circle,
-    iconColor: "text-gray-300",
-    label: "Not reviewed",
-  },
+const understandingConfig: Record<
+  Understanding,
+  {
+    bg: string;
+    border: string;
+    hover: string;
+    icon: typeof CheckCircle2;
+    iconColor: string;
+    label: string;
+  }
+> = {
   understood: {
     bg: "bg-emerald-50",
     border: "border-emerald-200",
@@ -67,6 +71,8 @@ export default function SentenceReview({
   const [sentences, setSentences] = useState<Sentence[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedHelp, setExpandedHelp] = useState(true);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchSentences();
@@ -103,28 +109,68 @@ export default function SentenceReview({
     }
   };
 
+  const bulkUpdateUnderstanding = async (
+    ids: string[],
+    understanding: Understanding
+  ) => {
+    setSentences((prev) =>
+      prev.map((s) =>
+        ids.includes(s.id) ? { ...s, understanding } : s
+      )
+    );
+
+    try {
+      await fetch(`/api/sentences/${documentId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sentenceIds: ids, understanding }),
+      });
+    } catch (err) {
+      console.error("Failed to bulk update:", err);
+    }
+  };
+
   const cycleUnderstanding = (current: Understanding): Understanding => {
-    const cycle: Understanding[] = [
-      "unmarked",
-      "understood",
-      "partial",
-      "not_understood",
-    ];
+    const cycle: Understanding[] = ["not_understood", "understood", "partial"];
     const idx = cycle.indexOf(current);
+    // If current is not in cycle (legacy "unmarked"), start at "understood"
+    if (idx === -1) return "understood";
     return cycle[(idx + 1) % cycle.length];
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleBulkAction = (understanding: Understanding) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    bulkUpdateUnderstanding(ids, understanding);
+    setSelectedIds(new Set());
+    setSelectMode(false);
+  };
+
+  const handleSelectAll = (understanding: Understanding) => {
+    const allIds = sentences.map((s) => s.id);
+    bulkUpdateUnderstanding(allIds, understanding);
   };
 
   const stats = {
     total: sentences.length,
     understood: sentences.filter((s) => s.understanding === "understood").length,
     partial: sentences.filter((s) => s.understanding === "partial").length,
-    not_understood: sentences.filter((s) => s.understanding === "not_understood")
-      .length,
-    unmarked: sentences.filter((s) => s.understanding === "unmarked").length,
+    not_understood: sentences.filter(
+      (s) => s.understanding === "not_understood"
+    ).length,
   };
-
-  const reviewedCount = stats.total - stats.unmarked;
-  const progress = stats.total > 0 ? (reviewedCount / stats.total) * 100 : 0;
 
   if (loading) {
     return (
@@ -157,10 +203,10 @@ export default function SentenceReview({
             <p className="text-sm text-gray-600 mb-3">
               Click on each sentence to cycle through understanding levels:
             </p>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-gray-50">
-                <Circle className="w-4 h-4 text-gray-300" />
-                <span className="text-gray-600">Not reviewed</span>
+            <div className="grid grid-cols-3 gap-2 text-sm">
+              <div className="flex items-center gap-2 p-2 rounded-lg bg-red-50">
+                <XCircle className="w-4 h-4 text-red-500" />
+                <span className="text-red-700">Not understood</span>
               </div>
               <div className="flex items-center gap-2 p-2 rounded-lg bg-emerald-50">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
@@ -169,10 +215,6 @@ export default function SentenceReview({
               <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-50">
                 <AlertCircle className="w-4 h-4 text-amber-500" />
                 <span className="text-amber-700">Partial</span>
-              </div>
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-red-50">
-                <XCircle className="w-4 h-4 text-red-500" />
-                <span className="text-red-700">Not understood</span>
               </div>
             </div>
           </div>
@@ -183,10 +225,10 @@ export default function SentenceReview({
       <div className="mb-6 bg-white rounded-xl border border-gray-200 p-4">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-gray-700">
-            Review Progress
+            Understanding Breakdown
           </span>
           <span className="text-sm text-gray-500">
-            {reviewedCount} of {stats.total} reviewed
+            {stats.total} sentences total
           </span>
         </div>
         <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden flex">
@@ -228,10 +270,6 @@ export default function SentenceReview({
             <span className="w-2 h-2 rounded-full bg-red-400" />
             {stats.not_understood} not understood
           </span>
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-gray-300" />
-            {stats.unmarked} not reviewed
-          </span>
         </div>
       </div>
 
@@ -239,7 +277,7 @@ export default function SentenceReview({
       <div className="mb-6 flex gap-3 flex-wrap">
         <button
           onClick={onGenerateStudyGuide}
-          disabled={generatingGuide || reviewedCount === 0}
+          disabled={generatingGuide}
           className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-medium
             hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
         >
@@ -265,31 +303,124 @@ export default function SentenceReview({
         </button>
       </div>
 
+      {/* Selection & Bulk Actions Toolbar - Sticky */}
+      <div className="sticky top-[73px] z-40 mb-4 bg-white/95 backdrop-blur-sm rounded-xl border border-gray-200 p-3 shadow-sm">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setSelectMode(!selectMode);
+                setSelectedIds(new Set());
+              }}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                selectMode
+                  ? "bg-indigo-100 text-indigo-700"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              <ListChecks className="w-4 h-4" />
+              {selectMode ? "Cancel selection" : "Select multiple"}
+            </button>
+
+            {selectMode && (
+              <>
+                <span className="text-xs text-gray-400">
+                  {selectedIds.size} selected
+                </span>
+                {selectedIds.size > 0 && (
+                  <div className="flex items-center gap-1 ml-2">
+                    <span className="text-xs text-gray-500 mr-1">
+                      Mark as:
+                    </span>
+                    <button
+                      onClick={() => handleBulkAction("understood")}
+                      className="px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors"
+                    >
+                      Understood
+                    </button>
+                    <button
+                      onClick={() => handleBulkAction("partial")}
+                      className="px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
+                    >
+                      Partial
+                    </button>
+                    <button
+                      onClick={() => handleBulkAction("not_understood")}
+                      className="px-2.5 py-1 rounded-lg text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
+                    >
+                      Not understood
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Select All Actions */}
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-400 mr-1">All sentences:</span>
+            <button
+              onClick={() => handleSelectAll("understood")}
+              className="px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors border border-emerald-200"
+            >
+              All understood
+            </button>
+            <button
+              onClick={() => handleSelectAll("not_understood")}
+              className="px-2.5 py-1 rounded-lg text-xs font-medium bg-red-50 text-red-600 hover:bg-red-100 transition-colors border border-red-200"
+            >
+              All not understood
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Sentences */}
       <div className="space-y-2">
         {sentences.map((sentence, index) => {
-          const config = understandingConfig[sentence.understanding];
+          // Fallback to not_understood for any legacy "unmarked" values
+          const understanding: Understanding =
+            sentence.understanding in understandingConfig
+              ? sentence.understanding
+              : "not_understood";
+          const config = understandingConfig[understanding];
           const Icon = config.icon;
+          const isSelected = selectedIds.has(sentence.id);
 
           return (
             <button
               key={sentence.id}
-              onClick={() =>
-                updateUnderstanding(
-                  sentence.id,
-                  cycleUnderstanding(sentence.understanding)
-                )
-              }
+              onClick={() => {
+                if (selectMode) {
+                  toggleSelect(sentence.id);
+                } else {
+                  updateUnderstanding(
+                    sentence.id,
+                    cycleUnderstanding(sentence.understanding)
+                  );
+                }
+              }}
               className={`
                 w-full text-left p-4 rounded-xl border transition-all duration-200
                 ${config.bg} ${config.border} ${config.hover}
                 hover:shadow-sm active:scale-[0.995]
+                ${selectMode && isSelected ? "ring-2 ring-indigo-400" : ""}
               `}
             >
               <div className="flex items-start gap-3">
-                <div className="flex-shrink-0 mt-0.5">
-                  <Icon className={`w-5 h-5 ${config.iconColor}`} />
-                </div>
+                {selectMode ? (
+                  <div className="flex-shrink-0 mt-0.5">
+                    {isSelected ? (
+                      <CheckSquare className="w-5 h-5 text-indigo-500" />
+                    ) : (
+                      <Square className="w-5 h-5 text-gray-300" />
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex-shrink-0 mt-0.5">
+                    <Icon className={`w-5 h-5 ${config.iconColor}`} />
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <p className="text-gray-800 text-sm leading-relaxed">
                     <span className="text-gray-400 font-mono text-xs mr-2">
@@ -298,9 +429,11 @@ export default function SentenceReview({
                     {sentence.content}
                   </p>
                 </div>
-                <span className="flex-shrink-0 text-xs text-gray-400 mt-0.5">
-                  {config.label}
-                </span>
+                {!selectMode && (
+                  <span className="flex-shrink-0 text-xs text-gray-400 mt-0.5">
+                    {config.label}
+                  </span>
+                )}
               </div>
             </button>
           );

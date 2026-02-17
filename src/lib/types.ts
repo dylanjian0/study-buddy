@@ -1,4 +1,4 @@
-export type Understanding = "unmarked" | "understood" | "partial" | "not_understood";
+export type Understanding = "understood" | "partial" | "not_understood";
 
 export interface Document {
   id: string;

@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
       document_id: doc.id,
       content,
       position: index,
-      understanding: "unmarked",
+      understanding: "not_understood",
     }));
 
     const { error: sentError } = await supabase

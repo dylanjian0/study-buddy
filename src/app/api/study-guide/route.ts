@@ -36,9 +36,6 @@ export async function POST(request: NextRequest) {
       understood: sentences.filter(
         (s: Sentence) => s.understanding === "understood"
       ),
-      unmarked: sentences.filter(
-        (s: Sentence) => s.understanding === "unmarked"
-      ),
     };
 
     const prompt = `You are an expert tutor creating a personalized study guide. The student has been studying "${doc?.title || "a topic"}" and has marked their understanding of each concept.
@@ -51,8 +48,6 @@ ${categorized.partial.map((s: Sentence) => `- ${s.content}`).join("\n") || "None
 
 Here are concepts they already understand (briefly review):
 ${categorized.understood.map((s: Sentence) => `- ${s.content}`).join("\n") || "None"}
-
-${categorized.unmarked.length > 0 ? `Here are concepts not yet reviewed (include a brief overview):\n${categorized.unmarked.map((s: Sentence) => `- ${s.content}`).join("\n")}` : ""}
 
 Create a comprehensive, well-structured study guide in Markdown format that:
 1. Starts with concepts the student doesn't understand, providing detailed explanations with examples
