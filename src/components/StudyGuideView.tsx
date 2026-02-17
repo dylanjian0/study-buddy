@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import {
   ArrowLeft,
   Download,
@@ -90,35 +92,24 @@ function renderMarkdown(text: string) {
 
     if (trimmed.startsWith("### ")) {
       elements.push(
-        <h3
-          key={`h3-${i}`}
-          className="text-lg font-semibold text-gray-900 mt-6 mb-2"
-        >
+        <h3 key={`h3-${i}`} className="text-lg font-semibold text-gray-900 mt-6 mb-2">
           {renderInline(trimmed.slice(4))}
         </h3>
       );
     } else if (trimmed.startsWith("## ")) {
       elements.push(
-        <h2
-          key={`h2-${i}`}
-          className="text-xl font-bold text-gray-900 mt-8 mb-3 pb-2 border-b border-gray-200"
-        >
+        <h2 key={`h2-${i}`} className="text-xl font-bold text-gray-900 mt-8 mb-3 pb-2 border-b border-gray-200">
           {renderInline(trimmed.slice(3))}
         </h2>
       );
     } else if (trimmed.startsWith("# ")) {
       elements.push(
-        <h1
-          key={`h1-${i}`}
-          className="text-2xl font-bold text-gray-900 mt-8 mb-4"
-        >
+        <h1 key={`h1-${i}`} className="text-2xl font-bold text-gray-900 mt-8 mb-4">
           {renderInline(trimmed.slice(2))}
         </h1>
       );
     } else if (trimmed === "---") {
-      elements.push(
-        <hr key={`hr-${i}`} className="my-6 border-gray-200" />
-      );
+      elements.push(<hr key={`hr-${i}`} className="my-6 border-gray-200" />);
     } else if (trimmed === "") {
       elements.push(<div key={`space-${i}`} className="h-2" />);
     } else {
@@ -147,13 +138,11 @@ function markdownToHtml(text: string): string {
     .replace(/^\* (.+)$/gm, '<li style="margin-left:24px;margin-bottom:4px;color:#374151;">$1</li>')
     .replace(/^\d+\. (.+)$/gm, '<li style="margin-left:24px;margin-bottom:4px;color:#374151;">$1</li>');
 
-  // Wrap consecutive <li> elements in <ul>
   html = html.replace(
     /(<li[^>]*>.*?<\/li>\n?)+/g,
     (match) => `<ul style="list-style-type:disc;padding-left:16px;margin:12px 0;">${match}</ul>`
   );
 
-  // Wrap remaining plain text lines in <p> tags
   const lines = html.split("\n");
   const processed = lines.map((line) => {
     const trimmed = line.trim();
@@ -209,6 +198,7 @@ export default function StudyGuideView({
     a.click();
     URL.revokeObjectURL(url);
     setShowDropdown(false);
+    toast.success("Markdown downloaded");
   };
 
   const handleDownloadPdf = async () => {
@@ -217,9 +207,7 @@ export default function StudyGuideView({
 
     try {
       const html2pdf = (await import("html2pdf.js")).default;
-
       const htmlContent = markdownToHtml(content);
-
       const container = document.createElement("div");
       container.innerHTML = `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 100%; padding: 40px; color: #111827;">
@@ -230,7 +218,6 @@ export default function StudyGuideView({
           ${htmlContent}
         </div>
       `;
-
       document.body.appendChild(container);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -239,31 +226,29 @@ export default function StudyGuideView({
           margin: [10, 15, 10, 15],
           filename: "study-guide.pdf",
           image: { type: "jpeg", quality: 0.98 },
-          html2canvas: {
-            scale: 2,
-            useCORS: true,
-            letterRendering: true,
-          },
-          jsPDF: {
-            unit: "mm",
-            format: "a4",
-            orientation: "portrait",
-          },
+          html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
           pagebreak: { mode: ["avoid-all", "css", "legacy"] },
         })
         .from(container)
         .save();
 
       document.body.removeChild(container);
-    } catch (err) {
-      console.error("PDF generation failed:", err);
+      toast.success("PDF downloaded");
+    } catch {
+      toast.error("PDF generation failed");
     } finally {
       setGeneratingPdf(false);
     }
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+      className="max-w-4xl mx-auto"
+    >
       <div className="flex items-center justify-between mb-6">
         <button
           onClick={onBack}
@@ -273,9 +258,10 @@ export default function StudyGuideView({
           Back to review
         </button>
 
-        {/* Download Dropdown */}
         <div className="relative" ref={dropdownRef}>
-          <button
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.97 }}
             onClick={() => setShowDropdown(!showDropdown)}
             disabled={generatingPdf}
             className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-xl
@@ -288,39 +274,45 @@ export default function StudyGuideView({
             )}
             {generatingPdf ? "Generating PDF..." : "Download"}
             <ChevronDown
-              className={`w-3.5 h-3.5 transition-transform ${
-                showDropdown ? "rotate-180" : ""
-              }`}
+              className={`w-3.5 h-3.5 transition-transform ${showDropdown ? "rotate-180" : ""}`}
             />
-          </button>
+          </motion.button>
 
-          {showDropdown && (
-            <div className="absolute right-0 mt-2 w-52 bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden z-50 animate-fade-in">
-              <button
-                onClick={handleDownloadMarkdown}
-                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700
-                  hover:bg-gray-50 transition-colors text-left"
+          <AnimatePresence>
+            {showDropdown && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                transition={{ duration: 0.15 }}
+                className="absolute right-0 mt-2 w-52 bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden z-50"
               >
-                <FileText className="w-4 h-4 text-gray-400" />
-                <div>
-                  <p className="font-medium">Markdown</p>
-                  <p className="text-xs text-gray-400">.md file</p>
-                </div>
-              </button>
-              <div className="border-t border-gray-100" />
-              <button
-                onClick={handleDownloadPdf}
-                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700
-                  hover:bg-gray-50 transition-colors text-left"
-              >
-                <FileType className="w-4 h-4 text-gray-400" />
-                <div>
-                  <p className="font-medium">PDF</p>
-                  <p className="text-xs text-gray-400">.pdf document</p>
-                </div>
-              </button>
-            </div>
-          )}
+                <button
+                  onClick={handleDownloadMarkdown}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700
+                    hover:bg-gray-50 transition-colors text-left"
+                >
+                  <FileText className="w-4 h-4 text-gray-400" />
+                  <div>
+                    <p className="font-medium">Markdown</p>
+                    <p className="text-xs text-gray-400">.md file</p>
+                  </div>
+                </button>
+                <div className="border-t border-gray-100" />
+                <button
+                  onClick={handleDownloadPdf}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700
+                    hover:bg-gray-50 transition-colors text-left"
+                >
+                  <FileType className="w-4 h-4 text-gray-400" />
+                  <div>
+                    <p className="font-medium">PDF</p>
+                    <p className="text-xs text-gray-400">.pdf document</p>
+                  </div>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
@@ -334,8 +326,15 @@ export default function StudyGuideView({
             Tailored to your understanding level
           </p>
         </div>
-        <div className="p-8">{renderMarkdown(content)}</div>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.2, duration: 0.4 }}
+          className="p-8"
+        >
+          {renderMarkdown(content)}
+        </motion.div>
       </div>
-    </div>
+    </motion.div>
   );
 }

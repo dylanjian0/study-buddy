@@ -2,11 +2,13 @@
 
 import { useState, useEffect, use, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import SentenceReview from "@/components/SentenceReview";
 import StudyGuideView from "@/components/StudyGuideView";
 import QuizMode from "@/components/QuizMode";
 import UserMenu from "@/components/UserMenu";
-import { GraduationCap, Home, Loader2, Trash2 } from "lucide-react";
+import { GraduationCap, Home, Trash2 } from "lucide-react";
 import { Document, StudyGuide, Quiz } from "@/lib/types";
 
 type View = "review" | "study-guide" | "quiz";
@@ -19,6 +21,13 @@ interface QuizQuestion {
   position: number;
 }
 
+const viewTransition = {
+  initial: { opacity: 0, y: 12 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -12 },
+  transition: { type: "spring" as const, stiffness: 300, damping: 30 },
+};
+
 export default function DocumentPage({
   params,
 }: {
@@ -28,9 +37,7 @@ export default function DocumentPage({
   const router = useRouter();
   const [view, setView] = useState<View>("review");
   const [document, setDocument] = useState<Document | null>(null);
-  const [studyGuideContent, setStudyGuideContent] = useState<string | null>(
-    null
-  );
+  const [studyGuideContent, setStudyGuideContent] = useState<string | null>(null);
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
   const [quizStreaming, setQuizStreaming] = useState(false);
   const [generatingGuide, setGeneratingGuide] = useState(false);
@@ -54,8 +61,8 @@ export default function DocumentPage({
       const docs = await res.json();
       const doc = docs.find((d: Document) => d.id === documentId);
       setDocument(doc || null);
-    } catch (err) {
-      console.error("Failed to fetch document:", err);
+    } catch {
+      toast.error("Failed to load document");
     } finally {
       setLoading(false);
     }
@@ -67,8 +74,8 @@ export default function DocumentPage({
       const data = await res.json();
       if (data.studyGuides) setSavedGuides(data.studyGuides);
       if (data.quizzes) setSavedQuizzes(data.quizzes);
-    } catch (err) {
-      console.error("Failed to fetch history:", err);
+    } catch {
+      // silent
     }
   };
 
@@ -84,10 +91,13 @@ export default function DocumentPage({
       if (data.content) {
         setStudyGuideContent(data.content);
         setView("study-guide");
+        toast.success("Study guide ready!");
         fetchHistory();
+      } else {
+        toast.error("Failed to generate study guide");
       }
-    } catch (err) {
-      console.error("Failed to generate study guide:", err);
+    } catch {
+      toast.error("Failed to generate study guide");
     } finally {
       setGeneratingGuide(false);
     }
@@ -109,10 +119,13 @@ export default function DocumentPage({
         body: JSON.stringify({ documentId }),
       });
       if (res.ok) {
+        toast.success("Document deleted");
         router.push("/dashboard");
+      } else {
+        toast.error("Failed to delete document");
       }
-    } catch (err) {
-      console.error("Failed to delete document:", err);
+    } catch {
+      toast.error("Failed to delete document");
     }
   };
 
@@ -138,8 +151,8 @@ export default function DocumentPage({
         setQuizStreaming(false);
         setView("quiz");
       }
-    } catch (err) {
-      console.error("Failed to load quiz:", err);
+    } catch {
+      toast.error("Failed to load quiz");
     }
   };
 
@@ -160,7 +173,7 @@ export default function DocumentPage({
       });
 
       if (!res.ok || !res.body) {
-        console.error("Quiz request failed");
+        toast.error("Failed to start quiz");
         setGeneratingQuiz(false);
         setQuizStreaming(false);
         return;
@@ -194,15 +207,12 @@ export default function DocumentPage({
 
           try {
             const parsed = JSON.parse(data);
-            if (parsed.error) {
-              console.error("Stream error:", parsed.error);
-              continue;
-            }
+            if (parsed.error) continue;
             if (parsed.question) {
               setQuizQuestions((prev) => [...prev, parsed]);
             }
           } catch {
-            // incomplete JSON line, skip
+            // incomplete JSON
           }
         }
       }
@@ -211,7 +221,7 @@ export default function DocumentPage({
       fetchHistory();
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
-        console.error("Failed to generate quiz:", err);
+        toast.error("Failed to generate quiz");
       }
       setQuizStreaming(false);
       setGeneratingQuiz(false);
@@ -220,8 +230,26 @@ export default function DocumentPage({
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+      <div className="min-h-screen">
+        <header className="border-b border-gray-200 bg-white/80 backdrop-blur-sm sticky top-0 z-50">
+          <div className="max-w-6xl mx-auto px-6 py-4 flex items-center gap-3">
+            <div className="skeleton w-10 h-10 rounded-xl" />
+            <div className="space-y-2">
+              <div className="skeleton h-5 w-32" />
+              <div className="skeleton h-3 w-48" />
+            </div>
+          </div>
+        </header>
+        <main className="max-w-6xl mx-auto px-6 py-8">
+          <div className="max-w-4xl mx-auto space-y-4">
+            <div className="skeleton h-14 w-full" />
+            <div className="skeleton h-20 w-full" />
+            <div className="skeleton h-28 w-full" />
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="skeleton h-16 w-full" />
+            ))}
+          </div>
+        </main>
       </div>
     );
   }
@@ -281,42 +309,45 @@ export default function DocumentPage({
       )}
 
       <main className="max-w-6xl mx-auto px-6 py-8">
-        {view === "review" && (
-          <div className="animate-fade-in">
-            <SentenceReview
-              documentId={documentId}
-              onGenerateStudyGuide={handleGenerateStudyGuide}
-              onStartQuiz={handleStartQuiz}
-              onViewStudyGuide={handleViewStudyGuide}
-              onViewQuiz={handleViewQuiz}
-              generatingGuide={generatingGuide}
-              generatingQuiz={generatingQuiz}
-              savedGuides={savedGuides}
-              savedQuizzes={savedQuizzes}
-            />
-          </div>
-        )}
-        {view === "study-guide" && studyGuideContent && (
-          <div className="animate-fade-in">
-            <StudyGuideView
-              content={studyGuideContent}
-              onBack={() => setView("review")}
-            />
-          </div>
-        )}
-        {view === "quiz" && (
-          <div className="animate-fade-in">
-            <QuizMode
-              questions={quizQuestions}
-              isStreaming={quizStreaming}
-              onBack={() => {
-                abortRef.current?.abort();
-                setQuizStreaming(false);
-                setView("review");
-              }}
-            />
-          </div>
-        )}
+        <AnimatePresence mode="wait">
+          {view === "review" && (
+            <motion.div key="review" {...viewTransition}>
+              <SentenceReview
+                documentId={documentId}
+                documentTitle={document?.title}
+                onGenerateStudyGuide={handleGenerateStudyGuide}
+                onStartQuiz={handleStartQuiz}
+                onViewStudyGuide={handleViewStudyGuide}
+                onViewQuiz={handleViewQuiz}
+                generatingGuide={generatingGuide}
+                generatingQuiz={generatingQuiz}
+                savedGuides={savedGuides}
+                savedQuizzes={savedQuizzes}
+              />
+            </motion.div>
+          )}
+          {view === "study-guide" && studyGuideContent && (
+            <motion.div key="guide" {...viewTransition}>
+              <StudyGuideView
+                content={studyGuideContent}
+                onBack={() => setView("review")}
+              />
+            </motion.div>
+          )}
+          {view === "quiz" && (
+            <motion.div key="quiz" {...viewTransition}>
+              <QuizMode
+                questions={quizQuestions}
+                isStreaming={quizStreaming}
+                onBack={() => {
+                  abortRef.current?.abort();
+                  setQuizStreaming(false);
+                  setView("review");
+                }}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
     </div>
   );

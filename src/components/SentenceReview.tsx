@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import {
   CheckCircle2,
   AlertCircle,
   XCircle,
   BookOpen,
   BrainCircuit,
-  Loader2,
   ChevronDown,
   ChevronUp,
   ListChecks,
@@ -16,11 +17,14 @@ import {
   Clock,
   FileText,
   HelpCircle,
+  Lightbulb,
+  X,
 } from "lucide-react";
 import { Sentence, Understanding, StudyGuide, Quiz } from "@/lib/types";
 
 interface SentenceReviewProps {
   documentId: string;
+  documentTitle?: string;
   onGenerateStudyGuide: () => void;
   onStartQuiz: () => void;
   onViewStudyGuide: (guide: StudyGuide) => void;
@@ -68,8 +72,21 @@ const understandingConfig: Record<
   },
 };
 
+const containerVariants = {
+  hidden: {},
+  show: {
+    transition: { staggerChildren: 0.03 },
+  },
+} as const;
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 8 },
+  show: { opacity: 1, y: 0, transition: { type: "spring" as const, stiffness: 300, damping: 30 } },
+};
+
 export default function SentenceReview({
   documentId,
+  documentTitle,
   onGenerateStudyGuide,
   onStartQuiz,
   onViewStudyGuide,
@@ -85,6 +102,12 @@ export default function SentenceReview({
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // Explainer state
+  const [expandedExplainId, setExpandedExplainId] = useState<string | null>(null);
+  const [explanationCache, setExplanationCache] = useState<Map<string, string>>(new Map());
+  const [explaining, setExplaining] = useState(false);
+  const explainAbortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     fetchSentences();
   }, [documentId]);
@@ -92,10 +115,11 @@ export default function SentenceReview({
   const fetchSentences = async () => {
     try {
       const res = await fetch(`/api/sentences/${documentId}`);
+      if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
       setSentences(data);
-    } catch (err) {
-      console.error("Failed to fetch sentences:", err);
+    } catch {
+      toast.error("Failed to load sentences");
     } finally {
       setLoading(false);
     }
@@ -115,8 +139,8 @@ export default function SentenceReview({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sentenceId, understanding }),
       });
-    } catch (err) {
-      console.error("Failed to update:", err);
+    } catch {
+      toast.error("Failed to update understanding");
     }
   };
 
@@ -136,15 +160,15 @@ export default function SentenceReview({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sentenceIds: ids, understanding }),
       });
-    } catch (err) {
-      console.error("Failed to bulk update:", err);
+      toast.success(`Marked ${ids.length} sentences as ${understanding.replace("_", " ")}`);
+    } catch {
+      toast.error("Failed to update sentences");
     }
   };
 
   const cycleUnderstanding = (current: Understanding): Understanding => {
     const cycle: Understanding[] = ["not_understood", "understood", "partial"];
     const idx = cycle.indexOf(current);
-    // If current is not in cycle (legacy "unmarked"), start at "understood"
     if (idx === -1) return "understood";
     return cycle[(idx + 1) % cycle.length];
   };
@@ -152,11 +176,8 @@ export default function SentenceReview({
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
@@ -174,20 +195,81 @@ export default function SentenceReview({
     bulkUpdateUnderstanding(allIds, understanding);
   };
 
+  // Explainer
+  const handleExplain = useCallback(async (sentence: Sentence) => {
+    if (expandedExplainId === sentence.id) {
+      setExpandedExplainId(null);
+      return;
+    }
+
+    setExpandedExplainId(sentence.id);
+
+    if (explanationCache.has(sentence.id)) return;
+
+    setExplaining(true);
+    explainAbortRef.current?.abort();
+    const controller = new AbortController();
+    explainAbortRef.current = controller;
+
+    try {
+      const res = await fetch("/api/explain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sentenceId: sentence.id,
+          sentenceContent: sentence.content,
+          documentTitle: documentTitle || "Study Material",
+        }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok || !res.body) throw new Error("Failed");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n");
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6);
+          if (data === "[DONE]") break;
+          accumulated += data;
+          setExplanationCache((prev) => new Map(prev).set(sentence.id, accumulated));
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name !== "AbortError") {
+        toast.error("Failed to generate explanation");
+        setExpandedExplainId(null);
+      }
+    } finally {
+      setExplaining(false);
+    }
+  }, [expandedExplainId, explanationCache, documentTitle]);
+
   const stats = {
     total: sentences.length,
     understood: sentences.filter((s) => s.understanding === "understood").length,
     partial: sentences.filter((s) => s.understanding === "partial").length,
-    not_understood: sentences.filter(
-      (s) => s.understanding === "not_understood"
-    ).length,
+    not_understood: sentences.filter((s) => s.understanding === "not_understood").length,
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
-        <span className="ml-3 text-gray-600">Loading sentences...</span>
+      <div className="max-w-4xl mx-auto space-y-4">
+        {/* Skeleton loading */}
+        <div className="skeleton h-14 w-full" />
+        <div className="skeleton h-20 w-full" />
+        <div className="skeleton h-28 w-full" />
+        <div className="skeleton h-12 w-full" />
+        {[...Array(6)].map((_, i) => (
+          <div key={i} className="skeleton h-16 w-full" />
+        ))}
       </div>
     );
   }
@@ -195,7 +277,12 @@ export default function SentenceReview({
   return (
     <div className="max-w-4xl mx-auto">
       {/* Help Section */}
-      <div className="mb-6 bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        className="mb-6 bg-white rounded-xl border border-gray-200 overflow-hidden"
+      >
         <button
           onClick={() => setExpandedHelp(!expandedHelp)}
           className="w-full flex items-center justify-between p-4 text-left"
@@ -209,31 +296,48 @@ export default function SentenceReview({
             <ChevronDown className="w-5 h-5 text-gray-400" />
           )}
         </button>
-        {expandedHelp && (
-          <div className="px-4 pb-4 border-t border-gray-100 pt-3">
-            <p className="text-sm text-gray-600 mb-3">
-              Click on each sentence to cycle through understanding levels:
-            </p>
-            <div className="grid grid-cols-3 gap-2 text-sm">
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-red-50">
-                <XCircle className="w-4 h-4 text-red-500" />
-                <span className="text-red-700">Not understood</span>
+        <AnimatePresence>
+          {expandedHelp && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <div className="px-4 pb-4 border-t border-gray-100 pt-3">
+                <p className="text-sm text-gray-600 mb-3">
+                  Click on each sentence to cycle through understanding levels.
+                  Click the <Lightbulb className="w-3.5 h-3.5 inline text-amber-500" /> icon
+                  to get an AI explanation.
+                </p>
+                <div className="grid grid-cols-3 gap-2 text-sm">
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-red-50">
+                    <XCircle className="w-4 h-4 text-red-500" />
+                    <span className="text-red-700">Not understood</span>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-emerald-50">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                    <span className="text-emerald-700">Understood</span>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-50">
+                    <AlertCircle className="w-4 h-4 text-amber-500" />
+                    <span className="text-amber-700">Partial</span>
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-emerald-50">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span className="text-emerald-700">Understood</span>
-              </div>
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-50">
-                <AlertCircle className="w-4 h-4 text-amber-500" />
-                <span className="text-amber-700">Partial</span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
 
       {/* Progress Bar */}
-      <div className="mb-6 bg-white rounded-xl border border-gray-200 p-4">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30, delay: 0.05 }}
+        className="mb-6 bg-white rounded-xl border border-gray-200 p-4"
+      >
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-gray-700">
             Understanding Breakdown
@@ -243,30 +347,24 @@ export default function SentenceReview({
           </span>
         </div>
         <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden flex">
-          {stats.understood > 0 && (
-            <div
-              className="h-full bg-emerald-400 transition-all duration-500"
-              style={{
-                width: `${(stats.understood / stats.total) * 100}%`,
-              }}
-            />
-          )}
-          {stats.partial > 0 && (
-            <div
-              className="h-full bg-amber-400 transition-all duration-500"
-              style={{
-                width: `${(stats.partial / stats.total) * 100}%`,
-              }}
-            />
-          )}
-          {stats.not_understood > 0 && (
-            <div
-              className="h-full bg-red-400 transition-all duration-500"
-              style={{
-                width: `${(stats.not_understood / stats.total) * 100}%`,
-              }}
-            />
-          )}
+          <motion.div
+            className="h-full bg-emerald-400"
+            initial={{ width: 0 }}
+            animate={{ width: stats.total ? `${(stats.understood / stats.total) * 100}%` : "0%" }}
+            transition={{ type: "spring", stiffness: 100, damping: 20, delay: 0.3 }}
+          />
+          <motion.div
+            className="h-full bg-amber-400"
+            initial={{ width: 0 }}
+            animate={{ width: stats.total ? `${(stats.partial / stats.total) * 100}%` : "0%" }}
+            transition={{ type: "spring", stiffness: 100, damping: 20, delay: 0.4 }}
+          />
+          <motion.div
+            className="h-full bg-red-400"
+            initial={{ width: 0 }}
+            animate={{ width: stats.total ? `${(stats.not_understood / stats.total) * 100}%` : "0%" }}
+            transition={{ type: "spring", stiffness: 100, damping: 20, delay: 0.5 }}
+          />
         </div>
         <div className="flex gap-4 mt-2 text-xs text-gray-500">
           <span className="flex items-center gap-1">
@@ -282,37 +380,50 @@ export default function SentenceReview({
             {stats.not_understood} not understood
           </span>
         </div>
-      </div>
+      </motion.div>
 
       {/* Action Buttons + Saved Items */}
-      <div className="mb-6 bg-white rounded-xl border border-gray-200 p-4">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30, delay: 0.1 }}
+        className="mb-6 bg-white rounded-xl border border-gray-200 p-4"
+      >
         <div className="flex gap-3 flex-wrap mb-4">
-          <button
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.97 }}
             onClick={onGenerateStudyGuide}
             disabled={generatingGuide}
             className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-medium
               hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
           >
             {generatingGuide ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }}>
+                <BookOpen className="w-4 h-4" />
+              </motion.div>
             ) : (
               <BookOpen className="w-4 h-4" />
             )}
             {generatingGuide ? "Generating..." : "New Study Guide"}
-          </button>
-          <button
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.97 }}
             onClick={onStartQuiz}
             disabled={generatingQuiz}
             className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 text-white rounded-xl font-medium
               hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
           >
             {generatingQuiz ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }}>
+                <BrainCircuit className="w-4 h-4" />
+              </motion.div>
             ) : (
               <BrainCircuit className="w-4 h-4" />
             )}
             {generatingQuiz ? "Generating..." : "New Quiz"}
-          </button>
+          </motion.button>
         </div>
 
         {/* Saved Study Guides */}
@@ -323,8 +434,10 @@ export default function SentenceReview({
             </p>
             <div className="flex flex-wrap gap-2">
               {savedGuides.map((guide, i) => (
-                <button
+                <motion.button
                   key={guide.id}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.97 }}
                   onClick={() => onViewStudyGuide(guide)}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200
                     bg-gray-50 hover:bg-indigo-50 hover:border-indigo-200 transition-colors text-sm group"
@@ -337,7 +450,7 @@ export default function SentenceReview({
                     <Clock className="w-3 h-3" />
                     {new Date(guide.created_at).toLocaleDateString()}
                   </span>
-                </button>
+                </motion.button>
               ))}
             </div>
           </div>
@@ -351,8 +464,10 @@ export default function SentenceReview({
             </p>
             <div className="flex flex-wrap gap-2">
               {savedQuizzes.map((quiz, i) => (
-                <button
+                <motion.button
                   key={quiz.id}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.97 }}
                   onClick={() => onViewQuiz(quiz.id)}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200
                     bg-gray-50 hover:bg-violet-50 hover:border-violet-200 transition-colors text-sm group"
@@ -365,7 +480,7 @@ export default function SentenceReview({
                     <Clock className="w-3 h-3" />
                     {new Date(quiz.created_at).toLocaleDateString()}
                   </span>
-                </button>
+                </motion.button>
               ))}
             </div>
           </div>
@@ -376,7 +491,7 @@ export default function SentenceReview({
             No saved study guides or quizzes yet. Generate one above!
           </p>
         )}
-      </div>
+      </motion.div>
 
       {/* Selection & Bulk Actions Toolbar - Sticky */}
       <div className="sticky top-[73px] z-40 mb-4 bg-white/95 backdrop-blur-sm rounded-xl border border-gray-200 p-3 shadow-sm">
@@ -397,41 +512,47 @@ export default function SentenceReview({
               {selectMode ? "Cancel selection" : "Select multiple"}
             </button>
 
-            {selectMode && (
-              <>
-                <span className="text-xs text-gray-400">
-                  {selectedIds.size} selected
-                </span>
-                {selectedIds.size > 0 && (
-                  <div className="flex items-center gap-1 ml-2">
-                    <span className="text-xs text-gray-500 mr-1">
-                      Mark as:
-                    </span>
-                    <button
-                      onClick={() => handleBulkAction("understood")}
-                      className="px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors"
-                    >
-                      Understood
-                    </button>
-                    <button
-                      onClick={() => handleBulkAction("partial")}
-                      className="px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
-                    >
-                      Partial
-                    </button>
-                    <button
-                      onClick={() => handleBulkAction("not_understood")}
-                      className="px-2.5 py-1 rounded-lg text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
-                    >
-                      Not understood
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
+            <AnimatePresence>
+              {selectMode && (
+                <motion.div
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  className="flex items-center gap-1"
+                >
+                  <span className="text-xs text-gray-400">
+                    {selectedIds.size} selected
+                  </span>
+                  {selectedIds.size > 0 && (
+                    <div className="flex items-center gap-1 ml-2">
+                      <span className="text-xs text-gray-500 mr-1">
+                        Mark as:
+                      </span>
+                      <button
+                        onClick={() => handleBulkAction("understood")}
+                        className="px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors"
+                      >
+                        Understood
+                      </button>
+                      <button
+                        onClick={() => handleBulkAction("partial")}
+                        className="px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
+                      >
+                        Partial
+                      </button>
+                      <button
+                        onClick={() => handleBulkAction("not_understood")}
+                        className="px-2.5 py-1 rounded-lg text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
+                      >
+                        Not understood
+                      </button>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
-          {/* Select All Actions */}
           <div className="flex items-center gap-1">
             <span className="text-xs text-gray-400 mr-1">All sentences:</span>
             <button
@@ -451,9 +572,13 @@ export default function SentenceReview({
       </div>
 
       {/* Sentences */}
-      <div className="space-y-2">
+      <motion.div
+        className="space-y-2"
+        variants={containerVariants}
+        initial="hidden"
+        animate="show"
+      >
         {sentences.map((sentence, index) => {
-          // Fallback to not_understood for any legacy "unmarked" values
           const understanding: Understanding =
             sentence.understanding in understandingConfig
               ? sentence.understanding
@@ -461,59 +586,131 @@ export default function SentenceReview({
           const config = understandingConfig[understanding];
           const Icon = config.icon;
           const isSelected = selectedIds.has(sentence.id);
+          const isExplainOpen = expandedExplainId === sentence.id;
+          const cachedExplanation = explanationCache.get(sentence.id);
 
           return (
-            <button
-              key={sentence.id}
-              onClick={() => {
-                if (selectMode) {
-                  toggleSelect(sentence.id);
-                } else {
-                  updateUnderstanding(
-                    sentence.id,
-                    cycleUnderstanding(sentence.understanding)
-                  );
-                }
-              }}
-              className={`
-                w-full text-left p-4 rounded-xl border transition-all duration-200
-                ${config.bg} ${config.border} ${config.hover}
-                hover:shadow-sm active:scale-[0.995]
-                ${selectMode && isSelected ? "ring-2 ring-indigo-400" : ""}
-              `}
-            >
-              <div className="flex items-start gap-3">
-                {selectMode ? (
-                  <div className="flex-shrink-0 mt-0.5">
-                    {isSelected ? (
-                      <CheckSquare className="w-5 h-5 text-indigo-500" />
-                    ) : (
-                      <Square className="w-5 h-5 text-gray-300" />
-                    )}
+            <motion.div key={sentence.id} variants={itemVariants}>
+              <motion.button
+                whileTap={{ scale: 0.995 }}
+                onClick={() => {
+                  if (selectMode) {
+                    toggleSelect(sentence.id);
+                  } else {
+                    updateUnderstanding(
+                      sentence.id,
+                      cycleUnderstanding(sentence.understanding)
+                    );
+                  }
+                }}
+                className={`
+                  w-full text-left p-4 rounded-xl border transition-all duration-200 group/sentence
+                  ${config.bg} ${config.border} ${config.hover}
+                  hover:shadow-sm
+                  ${selectMode && isSelected ? "ring-2 ring-indigo-400" : ""}
+                `}
+              >
+                <div className="flex items-start gap-3">
+                  {selectMode ? (
+                    <div className="flex-shrink-0 mt-0.5">
+                      {isSelected ? (
+                        <CheckSquare className="w-5 h-5 text-indigo-500" />
+                      ) : (
+                        <Square className="w-5 h-5 text-gray-300" />
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex-shrink-0 mt-0.5">
+                      <Icon className={`w-5 h-5 ${config.iconColor}`} />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-gray-800 text-sm leading-relaxed">
+                      <span className="text-gray-400 font-mono text-xs mr-2">
+                        {index + 1}.
+                      </span>
+                      {sentence.content}
+                    </p>
                   </div>
-                ) : (
-                  <div className="flex-shrink-0 mt-0.5">
-                    <Icon className={`w-5 h-5 ${config.iconColor}`} />
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="text-gray-800 text-sm leading-relaxed">
-                    <span className="text-gray-400 font-mono text-xs mr-2">
-                      {index + 1}.
-                    </span>
-                    {sentence.content}
-                  </p>
+                  {!selectMode && (
+                    <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleExplain(sentence);
+                        }}
+                        className={`p-1.5 rounded-lg transition-all ${
+                          isExplainOpen
+                            ? "bg-amber-100 text-amber-600"
+                            : "opacity-0 group-hover/sentence:opacity-100 hover:bg-amber-100 text-gray-400 hover:text-amber-600"
+                        }`}
+                        title="Explain this sentence"
+                      >
+                        <Lightbulb className="w-4 h-4" />
+                      </button>
+                      <span className="text-xs text-gray-400">
+                        {config.label}
+                      </span>
+                    </div>
+                  )}
                 </div>
-                {!selectMode && (
-                  <span className="flex-shrink-0 text-xs text-gray-400 mt-0.5">
-                    {config.label}
-                  </span>
+              </motion.button>
+
+              {/* Explain Panel */}
+              <AnimatePresence>
+                {isExplainOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="ml-8 mt-1 mb-2 p-4 bg-indigo-50 border border-indigo-200 rounded-xl relative">
+                      <button
+                        onClick={() => setExpandedExplainId(null)}
+                        className="absolute top-2 right-2 p-1 rounded-lg hover:bg-indigo-100 text-indigo-400 hover:text-indigo-600 transition-colors"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                      <div className="flex items-start gap-2.5">
+                        <Lightbulb className="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1 min-w-0 pr-4">
+                          {cachedExplanation ? (
+                            <p className="text-sm text-indigo-900 leading-relaxed whitespace-pre-wrap">
+                              {cachedExplanation}
+                            </p>
+                          ) : explaining ? (
+                            <div className="flex items-center gap-1.5">
+                              <motion.span
+                                animate={{ opacity: [0.3, 1, 0.3] }}
+                                transition={{ repeat: Infinity, duration: 1.2, delay: 0 }}
+                                className="w-1.5 h-1.5 rounded-full bg-indigo-400"
+                              />
+                              <motion.span
+                                animate={{ opacity: [0.3, 1, 0.3] }}
+                                transition={{ repeat: Infinity, duration: 1.2, delay: 0.2 }}
+                                className="w-1.5 h-1.5 rounded-full bg-indigo-400"
+                              />
+                              <motion.span
+                                animate={{ opacity: [0.3, 1, 0.3] }}
+                                transition={{ repeat: Infinity, duration: 1.2, delay: 0.4 }}
+                                className="w-1.5 h-1.5 rounded-full bg-indigo-400"
+                              />
+                            </div>
+                          ) : (
+                            <p className="text-sm text-indigo-400">Loading...</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
                 )}
-              </div>
-            </button>
+              </AnimatePresence>
+            </motion.div>
           );
         })}
-      </div>
+      </motion.div>
     </div>
   );
 }

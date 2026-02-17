@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import { createClient } from "@/lib/supabase-browser";
 import { LogOut, User as UserIcon, ChevronDown } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -47,6 +49,7 @@ export default function UserMenu() {
   const handleSignOut = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
+    toast("Signed out successfully");
     router.push("/");
     router.refresh();
   };
@@ -55,7 +58,9 @@ export default function UserMenu() {
 
   return (
     <div className="relative" ref={menuRef}>
-      <button
+      <motion.button
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.97 }}
         onClick={() => setOpen(!open)}
         className="flex items-center gap-2 px-3 py-1.5 rounded-xl hover:bg-gray-100 transition-colors"
       >
@@ -79,26 +84,34 @@ export default function UserMenu() {
             open ? "rotate-180" : ""
           }`}
         />
-      </button>
+      </motion.button>
 
-      {open && (
-        <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden z-50 animate-fade-in">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <p className="text-sm font-medium text-gray-900 truncate">
-              {user.name}
-            </p>
-            <p className="text-xs text-gray-500 truncate">{user.email}</p>
-          </div>
-          <button
-            onClick={handleSignOut}
-            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700
-              hover:bg-gray-50 transition-colors text-left"
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -4 }}
+            transition={{ duration: 0.15 }}
+            className="absolute right-0 mt-2 w-56 bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden z-50"
           >
-            <LogOut className="w-4 h-4 text-gray-400" />
-            Sign out
-          </button>
-        </div>
-      )}
+            <div className="px-4 py-3 border-b border-gray-100">
+              <p className="text-sm font-medium text-gray-900 truncate">
+                {user.name}
+              </p>
+              <p className="text-xs text-gray-500 truncate">{user.email}</p>
+            </div>
+            <button
+              onClick={handleSignOut}
+              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700
+                hover:bg-gray-50 transition-colors text-left"
+            >
+              <LogOut className="w-4 h-4 text-gray-400" />
+              Sign out
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
