@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import SentenceReview from "@/components/SentenceReview";
 import StudyGuideView from "@/components/StudyGuideView";
 import QuizMode from "@/components/QuizMode";
-import { GraduationCap, Home, Loader2 } from "lucide-react";
+import { GraduationCap, Home, Loader2, Trash2 } from "lucide-react";
 import { Document, StudyGuide, Quiz } from "@/lib/types";
 
 type View = "review" | "study-guide" | "quiz";
@@ -89,6 +89,29 @@ export default function DocumentPage({
       console.error("Failed to generate study guide:", err);
     } finally {
       setGeneratingGuide(false);
+    }
+  };
+
+  const handleDeleteDocument = async () => {
+    if (
+      !confirm(
+        "Delete this document and all its study guides, quizzes, and data?"
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/documents", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentId }),
+      });
+      if (res.ok) {
+        router.push("/");
+      }
+    } catch (err) {
+      console.error("Failed to delete document:", err);
     }
   };
 
@@ -220,14 +243,25 @@ export default function DocumentPage({
               )}
             </div>
           </div>
-          <button
-            onClick={() => router.push("/")}
-            className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900
-              hover:bg-gray-100 rounded-xl transition-colors text-sm"
-          >
-            <Home className="w-4 h-4" />
-            Home
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleDeleteDocument}
+              className="flex items-center gap-2 px-4 py-2 text-gray-400 hover:text-red-600
+                hover:bg-red-50 rounded-xl transition-colors text-sm"
+              title="Delete document"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete
+            </button>
+            <button
+              onClick={() => router.push("/")}
+              className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900
+                hover:bg-gray-100 rounded-xl transition-colors text-sm"
+            >
+              <Home className="w-4 h-4" />
+              Home
+            </button>
+          </div>
         </div>
       </header>
 
