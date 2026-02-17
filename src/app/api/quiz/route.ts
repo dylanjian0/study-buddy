@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase-server";
 import { openai } from "@/lib/openai";
 import { Sentence } from "@/lib/types";
 
@@ -17,12 +17,10 @@ function extractCompleteQuestions(partial: string): {
   const questions: ParsedQuestion[] = [];
   let remaining = partial;
 
-  // Find the start of the array
   const arrStart = remaining.indexOf("[");
   if (arrStart === -1) return { questions: [], remaining };
   remaining = remaining.slice(arrStart + 1);
 
-  // Try to extract complete JSON objects
   let depth = 0;
   let objStart = -1;
 
@@ -44,7 +42,7 @@ function extractCompleteQuestions(partial: string): {
           // incomplete JSON, skip
         }
         remaining = remaining.slice(i + 1);
-        i = -1; // restart scanning from the new remaining
+        i = -1;
         objStart = -1;
       }
     }
@@ -55,7 +53,34 @@ function extractCompleteQuestions(partial: string): {
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     const { documentId } = await request.json();
+
+    // Verify document belongs to user
+    const { data: doc } = await supabase
+      .from("documents")
+      .select("id, title")
+      .eq("id", documentId)
+      .eq("user_id", user.id)
+      .single();
+
+    if (!doc) {
+      return new Response(
+        JSON.stringify({ error: "Not found" }),
+        { status: 404, headers: { "Content-Type": "application/json" } }
+      );
+    }
 
     const { data: sentences, error } = await supabase
       .from("sentences")
@@ -70,15 +95,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: doc } = await supabase
-      .from("documents")
-      .select("title")
-      .eq("id", documentId)
-      .single();
-
     const allContent = sentences.map((s: Sentence) => s.content).join("\n");
 
-    const prompt = `Based on the following study material about "${doc?.title || "a topic"}", generate exactly 10 multiple-choice questions to test the student's knowledge.
+    const prompt = `Based on the following study material about "${doc.title || "a topic"}", generate exactly 10 multiple-choice questions to test the student's knowledge.
 
 Study material:
 ${allContent}
@@ -101,7 +120,6 @@ Rules:
 - Make incorrect options plausible but clearly wrong
 - Return ONLY the JSON array, no other text`;
 
-    // Create quiz record upfront
     const { data: quiz, error: quizError } = await supabase
       .from("quizzes")
       .insert({ document_id: documentId })
@@ -137,7 +155,6 @@ Rules:
 
             const { questions } = extractCompleteQuestions(accumulated);
 
-            // Send any new questions we haven't sent yet
             while (questionsSentSoFar < questions.length) {
               const q = questions[questionsSentSoFar];
               const questionData = {
@@ -148,7 +165,6 @@ Rules:
                 position: questionsSentSoFar,
               };
 
-              // Save to Supabase in background
               supabase
                 .from("quiz_questions")
                 .insert({

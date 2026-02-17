@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import PDFUpload from "@/components/PDFUpload";
+import UserMenu from "@/components/UserMenu";
 import {
   GraduationCap,
   FileText,
@@ -43,14 +44,17 @@ export default function Home() {
     <div className="min-h-screen">
       {/* Header */}
       <header className="border-b border-gray-200 bg-white/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center">
-            <GraduationCap className="w-6 h-6 text-white" />
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center">
+              <GraduationCap className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">StudyBuddy</h1>
+              <p className="text-xs text-gray-500">AI-Powered Study Assistant</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">StudyBuddy</h1>
-            <p className="text-xs text-gray-500">AI-Powered Study Assistant</p>
-          </div>
+          <UserMenu />
         </div>
       </header>
 

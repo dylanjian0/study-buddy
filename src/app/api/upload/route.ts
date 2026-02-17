@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase-server";
 
 function splitIntoSentences(text: string): string[] {
   const cleaned = text
@@ -18,6 +18,15 @@ function splitIntoSentences(text: string): string[] {
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const formData = await request.formData();
     const file = formData.get("file") as File;
 
@@ -51,7 +60,7 @@ export async function POST(request: NextRequest) {
     const title = file.name.replace(/\.pdf$/i, "");
     const { data: doc, error: docError } = await supabase
       .from("documents")
-      .insert({ title, original_filename: file.name })
+      .insert({ title, original_filename: file.name, user_id: user.id })
       .select()
       .single();
 

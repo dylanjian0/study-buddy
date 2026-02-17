@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import SentenceReview from "@/components/SentenceReview";
 import StudyGuideView from "@/components/StudyGuideView";
 import QuizMode from "@/components/QuizMode";
+import UserMenu from "@/components/UserMenu";
 import { GraduationCap, Home, Loader2, Trash2 } from "lucide-react";
 import { Document, StudyGuide, Quiz } from "@/lib/types";
 
@@ -261,6 +262,7 @@ export default function DocumentPage({
               <Home className="w-4 h-4" />
               Home
             </button>
+            <UserMenu />
           </div>
         </div>
       </header>

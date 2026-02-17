@@ -1,11 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase-server";
 import { openai } from "@/lib/openai";
 import { Sentence } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { documentId } = await request.json();
+
+    // Verify document belongs to user
+    const { data: doc } = await supabase
+      .from("documents")
+      .select("id, title")
+      .eq("id", documentId)
+      .eq("user_id", user.id)
+      .single();
+
+    if (!doc) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
 
     const { data: sentences, error } = await supabase
       .from("sentences")
@@ -20,12 +41,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: doc } = await supabase
-      .from("documents")
-      .select("title")
-      .eq("id", documentId)
-      .single();
-
     const categorized = {
       not_understood: sentences.filter(
         (s: Sentence) => s.understanding === "not_understood"
@@ -38,7 +53,7 @@ export async function POST(request: NextRequest) {
       ),
     };
 
-    const prompt = `You are an expert tutor creating a personalized study guide. The student has been studying "${doc?.title || "a topic"}" and has marked their understanding of each concept.
+    const prompt = `You are an expert tutor creating a personalized study guide. The student has been studying "${doc.title || "a topic"}" and has marked their understanding of each concept.
 
 Here are the concepts they DO NOT understand (give these the MOST attention and explanation):
 ${categorized.not_understood.map((s: Sentence) => `- ${s.content}`).join("\n") || "None"}

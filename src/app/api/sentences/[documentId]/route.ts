@@ -1,11 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase-server";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ documentId: string }> }
 ) {
   const { documentId } = await params;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Verify document belongs to user
+  const { data: doc } = await supabase
+    .from("documents")
+    .select("id")
+    .eq("id", documentId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!doc) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   const { data, error } = await supabase
     .from("sentences")
@@ -25,10 +45,30 @@ export async function PATCH(
   { params }: { params: Promise<{ documentId: string }> }
 ) {
   const { documentId } = await params;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Verify document belongs to user
+  const { data: doc } = await supabase
+    .from("documents")
+    .select("id")
+    .eq("id", documentId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!doc) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const body = await request.json();
   const { sentenceId, sentenceIds, understanding } = body;
 
-  // Bulk update: update multiple sentences at once
   if (sentenceIds && Array.isArray(sentenceIds)) {
     const { error } = await supabase
       .from("sentences")
@@ -43,7 +83,6 @@ export async function PATCH(
     return NextResponse.json({ success: true });
   }
 
-  // Single update
   if (sentenceId) {
     const { error } = await supabase
       .from("sentences")

@@ -1,11 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase-server";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ documentId: string }> }
 ) {
   const { documentId } = await params;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Verify document belongs to user
+  const { data: doc } = await supabase
+    .from("documents")
+    .select("id")
+    .eq("id", documentId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!doc) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   const [guidesResult, quizzesResult] = await Promise.all([
     supabase

@@ -4,6 +4,7 @@ export interface Document {
   id: string;
   title: string;
   original_filename: string;
+  user_id: string;
   created_at: string;
 }
 

@@ -1,12 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { data, error } = await supabase
     .from("documents")
     .select("*")
+    .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -17,6 +27,15 @@ export async function GET() {
 }
 
 export async function DELETE(request: NextRequest) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { documentId } = await request.json();
 
   if (!documentId) {
@@ -29,7 +48,8 @@ export async function DELETE(request: NextRequest) {
   const { error } = await supabase
     .from("documents")
     .delete()
-    .eq("id", documentId);
+    .eq("id", documentId)
+    .eq("user_id", user.id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
