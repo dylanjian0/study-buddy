@@ -109,7 +109,7 @@ export default function DocumentPage({
         body: JSON.stringify({ documentId }),
       });
       if (res.ok) {
-        router.push("/");
+        router.push("/dashboard");
       }
     } catch (err) {
       console.error("Failed to delete document:", err);
@@ -255,7 +255,7 @@ export default function DocumentPage({
               Delete
             </button>
             <button
-              onClick={() => router.push("/")}
+              onClick={() => router.push("/dashboard")}
               className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900
                 hover:bg-gray-100 rounded-xl transition-colors text-sm"
             >
