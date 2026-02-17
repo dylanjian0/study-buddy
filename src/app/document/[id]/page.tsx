@@ -6,7 +6,7 @@ import SentenceReview from "@/components/SentenceReview";
 import StudyGuideView from "@/components/StudyGuideView";
 import QuizMode from "@/components/QuizMode";
 import { GraduationCap, Home, Loader2 } from "lucide-react";
-import { Document } from "@/lib/types";
+import { Document, StudyGuide, Quiz } from "@/lib/types";
 
 type View = "review" | "study-guide" | "quiz";
 
@@ -35,10 +35,13 @@ export default function DocumentPage({
   const [generatingGuide, setGeneratingGuide] = useState(false);
   const [generatingQuiz, setGeneratingQuiz] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [savedGuides, setSavedGuides] = useState<StudyGuide[]>([]);
+  const [savedQuizzes, setSavedQuizzes] = useState<Quiz[]>([]);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     fetchDocument();
+    fetchHistory();
     return () => {
       abortRef.current?.abort();
     };
@@ -57,6 +60,17 @@ export default function DocumentPage({
     }
   };
 
+  const fetchHistory = async () => {
+    try {
+      const res = await fetch(`/api/history/${documentId}`);
+      const data = await res.json();
+      if (data.studyGuides) setSavedGuides(data.studyGuides);
+      if (data.quizzes) setSavedQuizzes(data.quizzes);
+    } catch (err) {
+      console.error("Failed to fetch history:", err);
+    }
+  };
+
   const handleGenerateStudyGuide = async () => {
     setGeneratingGuide(true);
     try {
@@ -69,11 +83,39 @@ export default function DocumentPage({
       if (data.content) {
         setStudyGuideContent(data.content);
         setView("study-guide");
+        fetchHistory();
       }
     } catch (err) {
       console.error("Failed to generate study guide:", err);
     } finally {
       setGeneratingGuide(false);
+    }
+  };
+
+  const handleViewStudyGuide = (guide: StudyGuide) => {
+    setStudyGuideContent(guide.content);
+    setView("study-guide");
+  };
+
+  const handleViewQuiz = async (quizId: string) => {
+    try {
+      const res = await fetch(`/api/quiz/${quizId}`);
+      const questions = await res.json();
+      if (Array.isArray(questions) && questions.length > 0) {
+        setQuizQuestions(
+          questions.map((q: QuizQuestion) => ({
+            question: q.question,
+            options: q.options,
+            correct_answer: q.correct_answer,
+            explanation: q.explanation,
+            position: q.position,
+          }))
+        );
+        setQuizStreaming(false);
+        setView("quiz");
+      }
+    } catch (err) {
+      console.error("Failed to load quiz:", err);
     }
   };
 
@@ -100,7 +142,6 @@ export default function DocumentPage({
         return;
       }
 
-      // Switch to quiz view immediately so the loading state shows
       setView("quiz");
       setGeneratingQuiz(false);
 
@@ -114,7 +155,6 @@ export default function DocumentPage({
 
         buffer += decoder.decode(value, { stream: true });
 
-        // Process complete SSE lines
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
 
@@ -124,6 +164,7 @@ export default function DocumentPage({
 
           if (data === "[DONE]") {
             setQuizStreaming(false);
+            fetchHistory();
             return;
           }
 
@@ -143,6 +184,7 @@ export default function DocumentPage({
       }
 
       setQuizStreaming(false);
+      fetchHistory();
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         console.error("Failed to generate quiz:", err);
@@ -209,8 +251,12 @@ export default function DocumentPage({
               documentId={documentId}
               onGenerateStudyGuide={handleGenerateStudyGuide}
               onStartQuiz={handleStartQuiz}
+              onViewStudyGuide={handleViewStudyGuide}
+              onViewQuiz={handleViewQuiz}
               generatingGuide={generatingGuide}
               generatingQuiz={generatingQuiz}
+              savedGuides={savedGuides}
+              savedQuizzes={savedQuizzes}
             />
           </div>
         )}

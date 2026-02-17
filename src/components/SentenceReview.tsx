@@ -13,15 +13,22 @@ import {
   ListChecks,
   CheckSquare,
   Square,
+  Clock,
+  FileText,
+  HelpCircle,
 } from "lucide-react";
-import { Sentence, Understanding } from "@/lib/types";
+import { Sentence, Understanding, StudyGuide, Quiz } from "@/lib/types";
 
 interface SentenceReviewProps {
   documentId: string;
   onGenerateStudyGuide: () => void;
   onStartQuiz: () => void;
+  onViewStudyGuide: (guide: StudyGuide) => void;
+  onViewQuiz: (quizId: string) => void;
   generatingGuide: boolean;
   generatingQuiz: boolean;
+  savedGuides: StudyGuide[];
+  savedQuizzes: Quiz[];
 }
 
 const understandingConfig: Record<
@@ -65,8 +72,12 @@ export default function SentenceReview({
   documentId,
   onGenerateStudyGuide,
   onStartQuiz,
+  onViewStudyGuide,
+  onViewQuiz,
   generatingGuide,
   generatingQuiz,
+  savedGuides,
+  savedQuizzes,
 }: SentenceReviewProps) {
   const [sentences, setSentences] = useState<Sentence[]>([]);
   const [loading, setLoading] = useState(true);
@@ -273,34 +284,98 @@ export default function SentenceReview({
         </div>
       </div>
 
-      {/* Action Buttons */}
-      <div className="mb-6 flex gap-3 flex-wrap">
-        <button
-          onClick={onGenerateStudyGuide}
-          disabled={generatingGuide}
-          className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-medium
-            hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-        >
-          {generatingGuide ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <BookOpen className="w-4 h-4" />
-          )}
-          {generatingGuide ? "Generating..." : "Generate Study Guide"}
-        </button>
-        <button
-          onClick={onStartQuiz}
-          disabled={generatingQuiz}
-          className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 text-white rounded-xl font-medium
-            hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-        >
-          {generatingQuiz ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <BrainCircuit className="w-4 h-4" />
-          )}
-          {generatingQuiz ? "Generating..." : "Start Quiz"}
-        </button>
+      {/* Action Buttons + Saved Items */}
+      <div className="mb-6 bg-white rounded-xl border border-gray-200 p-4">
+        <div className="flex gap-3 flex-wrap mb-4">
+          <button
+            onClick={onGenerateStudyGuide}
+            disabled={generatingGuide}
+            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-medium
+              hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+          >
+            {generatingGuide ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <BookOpen className="w-4 h-4" />
+            )}
+            {generatingGuide ? "Generating..." : "New Study Guide"}
+          </button>
+          <button
+            onClick={onStartQuiz}
+            disabled={generatingQuiz}
+            className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 text-white rounded-xl font-medium
+              hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+          >
+            {generatingQuiz ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <BrainCircuit className="w-4 h-4" />
+            )}
+            {generatingQuiz ? "Generating..." : "New Quiz"}
+          </button>
+        </div>
+
+        {/* Saved Study Guides */}
+        {savedGuides.length > 0 && (
+          <div className="mb-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+              Saved Study Guides
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {savedGuides.map((guide, i) => (
+                <button
+                  key={guide.id}
+                  onClick={() => onViewStudyGuide(guide)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200
+                    bg-gray-50 hover:bg-indigo-50 hover:border-indigo-200 transition-colors text-sm group"
+                >
+                  <FileText className="w-3.5 h-3.5 text-gray-400 group-hover:text-indigo-500" />
+                  <span className="text-gray-700 group-hover:text-indigo-700 font-medium">
+                    Guide #{savedGuides.length - i}
+                  </span>
+                  <span className="text-xs text-gray-400 flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {new Date(guide.created_at).toLocaleDateString()}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Saved Quizzes */}
+        {savedQuizzes.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+              Saved Quizzes
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {savedQuizzes.map((quiz, i) => (
+                <button
+                  key={quiz.id}
+                  onClick={() => onViewQuiz(quiz.id)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200
+                    bg-gray-50 hover:bg-violet-50 hover:border-violet-200 transition-colors text-sm group"
+                >
+                  <HelpCircle className="w-3.5 h-3.5 text-gray-400 group-hover:text-violet-500" />
+                  <span className="text-gray-700 group-hover:text-violet-700 font-medium">
+                    Quiz #{savedQuizzes.length - i}
+                  </span>
+                  <span className="text-xs text-gray-400 flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {new Date(quiz.created_at).toLocaleDateString()}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {savedGuides.length === 0 && savedQuizzes.length === 0 && (
+          <p className="text-xs text-gray-400">
+            No saved study guides or quizzes yet. Generate one above!
+          </p>
+        )}
       </div>
 
       {/* Selection & Bulk Actions Toolbar - Sticky */}
