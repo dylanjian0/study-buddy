@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import SentenceReview from "@/components/SentenceReview";
 import StudyGuideView from "@/components/StudyGuideView";
@@ -30,15 +30,18 @@ export default function DocumentPage({
   const [studyGuideContent, setStudyGuideContent] = useState<string | null>(
     null
   );
-  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[] | null>(
-    null
-  );
+  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
+  const [quizStreaming, setQuizStreaming] = useState(false);
   const [generatingGuide, setGeneratingGuide] = useState(false);
   const [generatingQuiz, setGeneratingQuiz] = useState(false);
   const [loading, setLoading] = useState(true);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     fetchDocument();
+    return () => {
+      abortRef.current?.abort();
+    };
   }, [documentId]);
 
   const fetchDocument = async () => {
@@ -74,25 +77,80 @@ export default function DocumentPage({
     }
   };
 
-  const handleStartQuiz = async () => {
+  const handleStartQuiz = useCallback(async () => {
     setGeneratingQuiz(true);
+    setQuizQuestions([]);
+    setQuizStreaming(true);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const res = await fetch("/api/quiz", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ documentId }),
+        signal: controller.signal,
       });
-      const data = await res.json();
-      if (data.questions) {
-        setQuizQuestions(data.questions);
-        setView("quiz");
+
+      if (!res.ok || !res.body) {
+        console.error("Quiz request failed");
+        setGeneratingQuiz(false);
+        setQuizStreaming(false);
+        return;
       }
+
+      // Switch to quiz view immediately so the loading state shows
+      setView("quiz");
+      setGeneratingQuiz(false);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete SSE lines
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+
+          if (data === "[DONE]") {
+            setQuizStreaming(false);
+            return;
+          }
+
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.error) {
+              console.error("Stream error:", parsed.error);
+              continue;
+            }
+            if (parsed.question) {
+              setQuizQuestions((prev) => [...prev, parsed]);
+            }
+          } catch {
+            // incomplete JSON line, skip
+          }
+        }
+      }
+
+      setQuizStreaming(false);
     } catch (err) {
-      console.error("Failed to generate quiz:", err);
-    } finally {
+      if ((err as Error).name !== "AbortError") {
+        console.error("Failed to generate quiz:", err);
+      }
+      setQuizStreaming(false);
       setGeneratingQuiz(false);
     }
-  };
+  }, [documentId]);
 
   if (loading) {
     return (
@@ -164,11 +222,16 @@ export default function DocumentPage({
             />
           </div>
         )}
-        {view === "quiz" && quizQuestions && (
+        {view === "quiz" && (
           <div className="animate-fade-in">
             <QuizMode
               questions={quizQuestions}
-              onBack={() => setView("review")}
+              isStreaming={quizStreaming}
+              onBack={() => {
+                abortRef.current?.abort();
+                setQuizStreaming(false);
+                setView("review");
+              }}
             />
           </div>
         )}

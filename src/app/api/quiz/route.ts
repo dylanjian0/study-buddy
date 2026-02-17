@@ -1,7 +1,57 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { openai } from "@/lib/openai";
 import { Sentence } from "@/lib/types";
+
+interface ParsedQuestion {
+  question: string;
+  options: string[];
+  correct_answer: number;
+  explanation: string;
+}
+
+function extractCompleteQuestions(partial: string): {
+  questions: ParsedQuestion[];
+  remaining: string;
+} {
+  const questions: ParsedQuestion[] = [];
+  let remaining = partial;
+
+  // Find the start of the array
+  const arrStart = remaining.indexOf("[");
+  if (arrStart === -1) return { questions: [], remaining };
+  remaining = remaining.slice(arrStart + 1);
+
+  // Try to extract complete JSON objects
+  let depth = 0;
+  let objStart = -1;
+
+  for (let i = 0; i < remaining.length; i++) {
+    const ch = remaining[i];
+    if (ch === "{") {
+      if (depth === 0) objStart = i;
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0 && objStart !== -1) {
+        const objStr = remaining.slice(objStart, i + 1);
+        try {
+          const obj = JSON.parse(objStr);
+          if (obj.question && obj.options && typeof obj.correct_answer === "number") {
+            questions.push(obj);
+          }
+        } catch {
+          // incomplete JSON, skip
+        }
+        remaining = remaining.slice(i + 1);
+        i = -1; // restart scanning from the new remaining
+        objStart = -1;
+      }
+    }
+  }
+
+  return { questions, remaining };
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,9 +64,9 @@ export async function POST(request: NextRequest) {
       .order("position", { ascending: true });
 
     if (error || !sentences) {
-      return NextResponse.json(
-        { error: "Failed to fetch sentences" },
-        { status: 500 }
+      return new Response(
+        JSON.stringify({ error: "Failed to fetch sentences" }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
       );
     }
 
@@ -51,24 +101,7 @@ Rules:
 - Make incorrect options plausible but clearly wrong
 - Return ONLY the JSON array, no other text`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: 3000,
-      temperature: 0.7,
-    });
-
-    const responseText = completion.choices[0].message.content || "[]";
-    const jsonMatch = responseText.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
-      return NextResponse.json(
-        { error: "Failed to parse quiz questions" },
-        { status: 500 }
-      );
-    }
-
-    const questions = JSON.parse(jsonMatch[0]);
-
+    // Create quiz record upfront
     const { data: quiz, error: quizError } = await supabase
       .from("quizzes")
       .insert({ document_id: documentId })
@@ -76,51 +109,87 @@ Rules:
       .single();
 
     if (quizError) {
-      return NextResponse.json(
-        { error: "Failed to save quiz" },
-        { status: 500 }
+      return new Response(
+        JSON.stringify({ error: "Failed to save quiz" }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    const questionRows = questions.map(
-      (
-        q: {
-          question: string;
-          options: string[];
-          correct_answer: number;
-          explanation: string;
-        },
-        index: number
-      ) => ({
-        quiz_id: quiz.id,
-        question: q.question,
-        options: q.options,
-        correct_answer: q.correct_answer,
-        explanation: q.explanation,
-        position: index,
-      })
-    );
+    const stream = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 3000,
+      temperature: 0.7,
+      stream: true,
+    });
 
-    const { error: qError } = await supabase
-      .from("quiz_questions")
-      .insert(questionRows);
+    let accumulated = "";
+    let questionsSentSoFar = 0;
 
-    if (qError) {
-      return NextResponse.json(
-        { error: "Failed to save quiz questions" },
-        { status: 500 }
-      );
-    }
+    const encoder = new TextEncoder();
 
-    return NextResponse.json({
-      quizId: quiz.id,
-      questions: questionRows,
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const chunk of stream) {
+            const delta = chunk.choices[0]?.delta?.content || "";
+            accumulated += delta;
+
+            const { questions } = extractCompleteQuestions(accumulated);
+
+            // Send any new questions we haven't sent yet
+            while (questionsSentSoFar < questions.length) {
+              const q = questions[questionsSentSoFar];
+              const questionData = {
+                question: q.question,
+                options: q.options,
+                correct_answer: q.correct_answer,
+                explanation: q.explanation,
+                position: questionsSentSoFar,
+              };
+
+              // Save to Supabase in background
+              supabase
+                .from("quiz_questions")
+                .insert({
+                  quiz_id: quiz.id,
+                  ...questionData,
+                })
+                .then();
+
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify(questionData)}\n\n`)
+              );
+              questionsSentSoFar++;
+            }
+          }
+
+          controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+          controller.close();
+        } catch (err) {
+          console.error("Stream error:", err);
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ error: "Stream failed" })}\n\n`
+            )
+          );
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
     });
   } catch (error) {
     console.error("Quiz generation error:", error);
-    return NextResponse.json(
-      { error: "Failed to generate quiz" },
-      { status: 500 }
+    return new Response(
+      JSON.stringify({ error: "Failed to generate quiz" }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 }

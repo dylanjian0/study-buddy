@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -8,6 +8,7 @@ import {
   XCircle,
   Trophy,
   RotateCcw,
+  Loader2,
 } from "lucide-react";
 
 interface QuizQuestion {
@@ -20,21 +21,40 @@ interface QuizQuestion {
 
 interface QuizModeProps {
   questions: QuizQuestion[];
+  isStreaming: boolean;
   onBack: () => void;
 }
 
-export default function QuizMode({ questions, onBack }: QuizModeProps) {
+export default function QuizMode({
+  questions,
+  isStreaming,
+  onBack,
+}: QuizModeProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [score, setScore] = useState(0);
-  const [answers, setAnswers] = useState<(number | null)[]>(
-    new Array(questions.length).fill(null)
-  );
+  const [answers, setAnswers] = useState<(number | null)[]>([]);
   const [completed, setCompleted] = useState(false);
+  const totalExpected = useRef(10);
+
+  // Keep answers array in sync with the growing question list
+  useEffect(() => {
+    setAnswers((prev) => {
+      if (prev.length < questions.length) {
+        return [...prev, ...new Array(questions.length - prev.length).fill(null)];
+      }
+      return prev;
+    });
+  }, [questions.length]);
 
   const currentQuestion = questions[currentIndex];
   const isCorrect = selectedAnswer === currentQuestion?.correct_answer;
+
+  const isLastLoadedQuestion = currentIndex === questions.length - 1;
+  const moreQuestionsComing = isStreaming && questions.length < totalExpected.current;
+  const waitingForNext =
+    isLastLoadedQuestion && moreQuestionsComing && showResult;
 
   const handleSelect = (optionIndex: number) => {
     if (showResult) return;
@@ -55,12 +75,13 @@ export default function QuizMode({ questions, onBack }: QuizModeProps) {
   };
 
   const handleNext = () => {
-    if (currentIndex < questions.length - 1) {
+    const isLast = !isStreaming && currentIndex >= questions.length - 1;
+    if (isLast) {
+      setCompleted(true);
+    } else if (currentIndex < questions.length - 1) {
       setCurrentIndex((i) => i + 1);
       setSelectedAnswer(null);
       setShowResult(false);
-    } else {
-      setCompleted(true);
     }
   };
 
@@ -74,7 +95,8 @@ export default function QuizMode({ questions, onBack }: QuizModeProps) {
   };
 
   if (completed) {
-    const percentage = Math.round((score / questions.length) * 100);
+    const totalAnswered = questions.length;
+    const percentage = Math.round((score / totalAnswered) * 100);
     let message = "";
     let messageColor = "";
     if (percentage >= 80) {
@@ -84,8 +106,7 @@ export default function QuizMode({ questions, onBack }: QuizModeProps) {
       message = "Good job! A bit more review and you'll ace it!";
       messageColor = "text-amber-600";
     } else {
-      message =
-        "Keep studying! Review the study guide and try again.";
+      message = "Keep studying! Review the study guide and try again.";
       messageColor = "text-red-600";
     }
 
@@ -99,12 +120,11 @@ export default function QuizMode({ questions, onBack }: QuizModeProps) {
             Quiz Complete!
           </h2>
           <p className="text-4xl font-bold text-indigo-600 mb-2">
-            {score}/{questions.length}
+            {score}/{totalAnswered}
           </p>
           <p className="text-gray-500 mb-2">{percentage}% correct</p>
           <p className={`font-medium mb-8 ${messageColor}`}>{message}</p>
 
-          {/* Answer Summary */}
           <div className="mb-8 text-left">
             <h3 className="font-semibold text-gray-700 mb-3">Answer Summary</h3>
             <div className="space-y-2">
@@ -165,6 +185,36 @@ export default function QuizMode({ questions, onBack }: QuizModeProps) {
     );
   }
 
+  // Still waiting for the first question to arrive
+  if (questions.length === 0) {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to review
+          </button>
+        </div>
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-12 text-center">
+          <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600 font-medium">
+            Generating your quiz questions...
+          </p>
+          <p className="text-sm text-gray-400 mt-1">
+            The first question will appear shortly
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const displayTotal = isStreaming
+    ? `${questions.length}...`
+    : `${questions.length}`;
+
   return (
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -175,9 +225,14 @@ export default function QuizMode({ questions, onBack }: QuizModeProps) {
           <ArrowLeft className="w-4 h-4" />
           Back to review
         </button>
-        <span className="text-sm text-gray-500">
-          Question {currentIndex + 1} of {questions.length}
-        </span>
+        <div className="flex items-center gap-2">
+          {isStreaming && (
+            <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
+          )}
+          <span className="text-sm text-gray-500">
+            Question {currentIndex + 1} of {displayTotal}
+          </span>
+        </div>
       </div>
 
       {/* Progress */}
@@ -186,7 +241,7 @@ export default function QuizMode({ questions, onBack }: QuizModeProps) {
           {questions.map((_, i) => (
             <div
               key={i}
-              className={`h-1.5 flex-1 rounded-full transition-colors ${
+              className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${
                 i < currentIndex
                   ? answers[i] === questions[i].correct_answer
                     ? "bg-emerald-400"
@@ -197,6 +252,9 @@ export default function QuizMode({ questions, onBack }: QuizModeProps) {
               }`}
             />
           ))}
+          {isStreaming && (
+            <div className="h-1.5 flex-1 rounded-full bg-gray-100 animate-pulse" />
+          )}
         </div>
       </div>
 
@@ -212,9 +270,11 @@ export default function QuizMode({ questions, onBack }: QuizModeProps) {
 
         <div className="p-6 space-y-3">
           {currentQuestion.options.map((option, i) => {
-            let optionStyle = "border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/50";
+            let optionStyle =
+              "border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/50";
             if (selectedAnswer === i && !showResult) {
-              optionStyle = "border-indigo-400 bg-indigo-50 ring-2 ring-indigo-200";
+              optionStyle =
+                "border-indigo-400 bg-indigo-50 ring-2 ring-indigo-200";
             }
             if (showResult) {
               if (i === currentQuestion.correct_answer) {
@@ -253,11 +313,9 @@ export default function QuizMode({ questions, onBack }: QuizModeProps) {
                   {showResult && i === currentQuestion.correct_answer && (
                     <CheckCircle2 className="w-5 h-5 text-emerald-500 ml-auto" />
                   )}
-                  {showResult &&
-                    i === selectedAnswer &&
-                    !isCorrect && (
-                      <XCircle className="w-5 h-5 text-red-500 ml-auto" />
-                    )}
+                  {showResult && i === selectedAnswer && !isCorrect && (
+                    <XCircle className="w-5 h-5 text-red-500 ml-auto" />
+                  )}
                 </div>
               </button>
             );
@@ -283,19 +341,24 @@ export default function QuizMode({ questions, onBack }: QuizModeProps) {
             >
               Submit Answer
             </button>
+          ) : waitingForNext ? (
+            <div className="flex items-center gap-2 px-6 py-2.5 text-gray-500">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm">Loading next question...</span>
+            </div>
           ) : (
             <button
               onClick={handleNext}
               className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl
                 font-medium hover:bg-indigo-700 transition-colors"
             >
-              {currentIndex < questions.length - 1 ? (
+              {!isStreaming && currentIndex >= questions.length - 1 ? (
+                "See Results"
+              ) : (
                 <>
                   Next Question
                   <ArrowRight className="w-4 h-4" />
                 </>
-              ) : (
-                "See Results"
               )}
             </button>
           )}
