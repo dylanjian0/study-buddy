@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { createClient } from "@/lib/supabase-browser";
 import { LogOut, User as UserIcon, ChevronDown } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 interface UserData {
   email: string;
@@ -65,11 +66,14 @@ export default function UserMenu() {
         className="flex items-center gap-2 px-3 py-1.5 rounded-xl hover:bg-gray-100 transition-colors"
       >
         {user.avatar ? (
-          <img
+          <Image
             src={user.avatar}
             alt={user.name}
+            width={28}
+            height={28}
             className="w-7 h-7 rounded-full"
             referrerPolicy="no-referrer"
+            unoptimized
           />
         ) : (
           <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center">

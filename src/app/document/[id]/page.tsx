@@ -47,15 +47,7 @@ export default function DocumentPage({
   const [savedQuizzes, setSavedQuizzes] = useState<Quiz[]>([]);
   const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    fetchDocument();
-    fetchHistory();
-    return () => {
-      abortRef.current?.abort();
-    };
-  }, [documentId]);
-
-  const fetchDocument = async () => {
+  const fetchDocument = useCallback(async () => {
     try {
       const res = await fetch("/api/documents");
       const docs = await res.json();
@@ -66,9 +58,9 @@ export default function DocumentPage({
     } finally {
       setLoading(false);
     }
-  };
+  }, [documentId]);
 
-  const fetchHistory = async () => {
+  const fetchHistory = useCallback(async () => {
     try {
       const res = await fetch(`/api/history/${documentId}`);
       const data = await res.json();
@@ -77,7 +69,15 @@ export default function DocumentPage({
     } catch {
       // silent
     }
-  };
+  }, [documentId]);
+
+  useEffect(() => {
+    fetchDocument();
+    fetchHistory();
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, [fetchDocument, fetchHistory]);
 
   const handleGenerateStudyGuide = async () => {
     setGeneratingGuide(true);
@@ -226,7 +226,7 @@ export default function DocumentPage({
       setQuizStreaming(false);
       setGeneratingQuiz(false);
     }
-  }, [documentId]);
+  }, [documentId, fetchHistory]);
 
   if (loading) {
     return (

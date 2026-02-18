@@ -108,11 +108,7 @@ export default function SentenceReview({
   const [explaining, setExplaining] = useState(false);
   const explainAbortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    fetchSentences();
-  }, [documentId]);
-
-  const fetchSentences = async () => {
+  const fetchSentences = useCallback(async () => {
     try {
       const res = await fetch(`/api/sentences/${documentId}`);
       if (!res.ok) throw new Error("Failed to fetch");
@@ -123,7 +119,11 @@ export default function SentenceReview({
     } finally {
       setLoading(false);
     }
-  };
+  }, [documentId]);
+
+  useEffect(() => {
+    fetchSentences();
+  }, [fetchSentences]);
 
   const updateUnderstanding = async (
     sentenceId: string,

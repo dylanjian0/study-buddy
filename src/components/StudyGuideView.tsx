@@ -21,7 +21,6 @@ interface StudyGuideViewProps {
 function renderMarkdown(text: string) {
   const lines = text.split("\n");
   const elements: JSX.Element[] = [];
-  let inList = false;
   let listItems: string[] = [];
 
   const flushList = () => {
@@ -39,7 +38,6 @@ function renderMarkdown(text: string) {
         </ul>
       );
       listItems = [];
-      inList = false;
     }
   };
 
@@ -79,11 +77,9 @@ function renderMarkdown(text: string) {
     const trimmed = line.trim();
 
     if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
-      inList = true;
       listItems.push(trimmed.slice(2));
       continue;
     } else if (trimmed.match(/^\d+\.\s/)) {
-      inList = true;
       listItems.push(trimmed.replace(/^\d+\.\s/, ""));
       continue;
     } else {

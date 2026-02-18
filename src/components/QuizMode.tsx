@@ -64,25 +64,21 @@ export default function QuizMode({
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [score, setScore] = useState(0);
-  const [answers, setAnswers] = useState<(number | null)[]>([]);
+  const [answersMap, setAnswersMap] = useState<Map<number, number | null>>(new Map());
   const [completed, setCompleted] = useState(false);
-  const totalExpected = useRef(10);
   const confettiFired = useRef(false);
 
-  useEffect(() => {
-    setAnswers((prev) => {
-      if (prev.length < questions.length) {
-        return [...prev, ...new Array(questions.length - prev.length).fill(null)];
-      }
-      return prev;
-    });
-  }, [questions.length]);
+  // Expected total questions for streaming indicator
+  const TOTAL_EXPECTED_QUESTIONS = 10;
+
+  // Derive answers array from map, ensuring it has the right length
+  const answers = Array.from({ length: questions.length }, (_, i) => answersMap.get(i) ?? null);
 
   const currentQuestion = questions[currentIndex];
   const isCorrect = selectedAnswer === currentQuestion?.correct_answer;
 
   const isLastLoadedQuestion = currentIndex === questions.length - 1;
-  const moreQuestionsComing = isStreaming && questions.length < totalExpected.current;
+  const moreQuestionsComing = isStreaming && questions.length < TOTAL_EXPECTED_QUESTIONS;
   const waitingForNext =
     isLastLoadedQuestion && moreQuestionsComing && showResult;
 
@@ -95,9 +91,7 @@ export default function QuizMode({
     if (selectedAnswer === null) return;
     setShowResult(true);
 
-    const newAnswers = [...answers];
-    newAnswers[currentIndex] = selectedAnswer;
-    setAnswers(newAnswers);
+    setAnswersMap((prev) => new Map(prev).set(currentIndex, selectedAnswer));
 
     if (selectedAnswer === currentQuestion.correct_answer) {
       setScore((s) => s + 1);
@@ -120,7 +114,7 @@ export default function QuizMode({
     setSelectedAnswer(null);
     setShowResult(false);
     setScore(0);
-    setAnswers(new Array(questions.length).fill(null));
+    setAnswersMap(new Map());
     setCompleted(false);
     confettiFired.current = false;
   };

@@ -284,7 +284,7 @@ export default function Dashboard() {
                   Start your study journey
                 </h3>
                 <p className="text-gray-500 max-w-md mx-auto mb-8">
-                  Upload a PDF of your study material. We'll break it down into sentences
+                  Upload a PDF of your study material. We&apos;ll break it down into sentences
                   so you can track your understanding and generate personalized study aids.
                 </p>
                 <PDFUpload onUploadComplete={handleUploadComplete} />
