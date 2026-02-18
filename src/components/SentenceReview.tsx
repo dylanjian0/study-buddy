@@ -73,15 +73,11 @@ const understandingConfig: Record<
 };
 
 const containerVariants = {
-  hidden: {},
-  show: {
-    transition: { staggerChildren: 0.03 },
-  },
+  show: {},
 } as const;
 
 const itemVariants = {
-  hidden: { opacity: 0, y: 8 },
-  show: { opacity: 1, y: 0, transition: { type: "spring" as const, stiffness: 300, damping: 30 } },
+  show: { opacity: 1, y: 0 },
 };
 
 export default function SentenceReview({
@@ -575,7 +571,6 @@ export default function SentenceReview({
       <motion.div
         className="space-y-2"
         variants={containerVariants}
-        initial="hidden"
         animate="show"
       >
         {sentences.map((sentence, index) => {
