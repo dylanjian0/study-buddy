@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -20,7 +20,7 @@ interface StudyGuideViewProps {
 
 function renderMarkdown(text: string) {
   const lines = text.split("\n");
-  const elements: JSX.Element[] = [];
+  const elements: React.JSX.Element[] = [];
   let listItems: string[] = [];
 
   const flushList = () => {
